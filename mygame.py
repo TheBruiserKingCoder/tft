@@ -2,6 +2,23 @@
 
 import pygame
 import random
+import math
+
+def hexagon_points(center, radius):
+    """
+    center: (x,y)
+    radius: afstand fra center til hvert hjørne
+    returnerer en liste af 6 (x,y)-tupler
+    """
+    cx, cy = center
+    return [
+        (
+            cx + radius * math.cos(math.radians(angle)),
+            cy + radius * math.sin(math.radians(angle))
+        )
+        for angle in range(0, 360, 60)
+    ]
+
 
 pygame.init()
 
@@ -221,6 +238,20 @@ def main():
         draw_text(screen,f"Guld:{shop.gold}",20,20)
         draw_text(screen,f"Lvl:{player_level}",20,50)
         draw_text(screen,f"XP:{player_xp}/{xp_to_next_level(player_level)}",20,80)
+        # --- Tegn hex-guides for bench og board før sprites ---
+        HEX_RADIUS = 40
+        HEX_COLOR  = (180,180,180)   # en lys grå
+        HEX_WIDTH  = 2              # tykkelsen på linjen
+
+        # Bench-hexes
+        for pos in BENCH_SLOT_POSITIONS:
+            pts = hexagon_points(pos, HEX_RADIUS)
+            pygame.draw.polygon(screen, HEX_COLOR, pts, HEX_WIDTH)
+
+        # Board-hexes
+        for pos in BOARD_SLOT_POSITIONS:
+            pts = hexagon_points(pos, HEX_RADIUS)
+            pygame.draw.polygon(screen, HEX_COLOR, pts, HEX_WIDTH)
         for i,ch in enumerate(shop.choices): x=200+i*140; draw_text(screen,f"{i+1}){ch[0]}({ch[1]}g)" if ch else f"{i+1})(tom)",x,50)
         draw_text(screen,"Bench:",20,340); [ (setattr(ch,"x",BENCH_SLOT_POSITIONS[i][0]), setattr(ch,"y",BENCH_SLOT_POSITIONS[i][1]), ch.draw(screen)) for i,ch in enumerate(bench) ]
         draw_text(screen,"Board:",20,420); [ (setattr(ch,"x",BOARD_SLOT_POSITIONS[i][0]), setattr(ch,"y",BOARD_SLOT_POSITIONS[i][1]), ch.draw(screen)) for i,ch in enumerate(board) ]
