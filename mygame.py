@@ -144,8 +144,7 @@ ALL_CHAMPIONS = [
     ("Viego",4,435,103,"Shadow Isles","Assassin"),("Aurelion Sol",5,550,130,"Astral","Invoker"),
     ("Sion",5,580,125,"Shadow Isles","Colossus"),("Katarina",5,540,135,"Noxian","Assassin"),
     ("Yuumi",5,520,140,"Piltover","Enchanter"),("Gangplank",5,560,128,"Bilgewater","Duelist"),
-    ("Naafiri",5,530,132,"Shadow Isles","Assassin"),("Soraka",5,510,138,"Targon","Mystic"),
-    ("")
+    ("Naafiri",5,530,132,"Shadow Isles","Assassin"),("Soraka",5,510,138,"Targon","Mystic"),   
 ]
 
 # --- SHOP ---
@@ -172,19 +171,33 @@ def main():
     shop=Shop(10); shop.reroll(player_level)
     selected,ox,oy=None,0,0; ticks=0
     running=True
+    in_combat = False
+    enemy_board = []
     while running:
         clock.tick(FPS)
         for e in pygame.event.get():
             if e.type==pygame.QUIT: running=False
             if e.type==pygame.KEYDOWN:
                 if e.key==pygame.K_r: shop.reroll(player_level)
-                if e.key==pygame.K_e and shop.gold>=GOLD_PER_XP:
+                elif e.key==pygame.K_e and shop.gold>=GOLD_PER_XP:
                     shop.gold-=GOLD_PER_XP; player_xp+=XP_PER_BUY
                     if player_xp>=xp_to_next_level(player_level): player_xp-=xp_to_next_level(player_level); player_level+=1
-                if e.key in [pygame.K_1,pygame.K_2,pygame.K_3,pygame.K_4,pygame.K_5]:
+                elif e.key in [pygame.K_1,pygame.K_2,pygame.K_3,pygame.K_4,pygame.K_5]:
                     idx=e.key-pygame.K_1
                     if idx<len(shop.choices) and shop.choices[idx]:
                         if shop.buy(shop.choices[idx],bench): shop.choices[idx]=None
+                elif e.key == pygame.K_b and not in_combat:
+                    # Gå i kamp-fase
+                    in_combat = True
+                    ticks = 0
+                    # Generér enemy_board på samme niveau som dit board
+                    enemy_board = []
+                    while len(enemy_board) < len(board):
+                        tpl = random.choice(ALL_CHAMPIONS)
+                        enemy_board.append(Champion(*tpl))
+                    # Placér dem i skærm‐positioner (fx spejlet af dit board)
+                    for i, ch in enumerate(enemy_board):
+                        ch.x, ch.y = SCREEN_WIDTH - BOARD_SLOT_POSITIONS[i][0] - 40, BOARD_SLOT_POSITIONS[i][1]
             if e.type==pygame.MOUSEBUTTONDOWN and e.button==1:
                 mx,my=e.pos
                 for i,ch in enumerate(bench):
@@ -199,7 +212,7 @@ def main():
                         bench.remove(selected); board.insert(j,selected); selected.x,selected.y=bx,by; placed=True; break
                 if not placed: bi=bench.index(selected); selected.x,selected.y=BENCH_SLOT_POSITIONS[bi]
                 selected=None
-        while len(board)<2 and bench: c=bench.pop(0); board.append(c); idx=len(board)-1; c.x,c.y=BOARD_SLOT_POSITIONS[idx]
+        #while len(board)<2 and bench: c=bench.pop(0); board.append(c); idx=len(board)-1; c.x,c.y=BOARD_SLOT_POSITIONS[idx]
         trait_counts={}
         for c in bench+board:
             for t in (c.origin,c.klass): trait_counts[t]=trait_counts.get(t,0)+1
@@ -211,8 +224,41 @@ def main():
         for i,ch in enumerate(shop.choices): x=200+i*140; draw_text(screen,f"{i+1}){ch[0]}({ch[1]}g)" if ch else f"{i+1})(tom)",x,50)
         draw_text(screen,"Bench:",20,340); [ (setattr(ch,"x",BENCH_SLOT_POSITIONS[i][0]), setattr(ch,"y",BENCH_SLOT_POSITIONS[i][1]), ch.draw(screen)) for i,ch in enumerate(bench) ]
         draw_text(screen,"Board:",20,420); [ (setattr(ch,"x",BOARD_SLOT_POSITIONS[i][0]), setattr(ch,"y",BOARD_SLOT_POSITIONS[i][1]), ch.draw(screen)) for i,ch in enumerate(board) ]
+        # Tegn fjende‐holdet (kun i combat)
+        if in_combat:
+            for ch in enemy_board:
+                ch.draw(screen)
+
         ticks+=1
-        if ticks>=FPS and len(board)>=2: a,b=board[0],board[1]; a.attack(b); b.attack(a) if b.current_hp>0 else None; ticks=0
+        #if ticks>=FPS and len(board)>=2: a,b=board[0],board[1]; a.attack(b); b.attack(a) if b.current_hp>0 else None; ticks=0
+        if in_combat:
+            ticks += 1
+            if ticks >= FPS:
+                # Hver runde: alle på board angriber random modstander på enemy_board og omvendt
+                for a in list(board):
+                    if enemy_board:
+                        b = random.choice(enemy_board)
+                        a.attack(b)
+                        if b.current_hp <= 0:
+                            enemy_board.remove(b)
+                for b in list(enemy_board):
+                    if board:
+                        a = random.choice(board)
+                        b.attack(a)
+                        if a.current_hp <= 0:
+                            board.remove(a)
+                ticks = 0
+
+                # Tjek om kampen er slut
+                if not board or not enemy_board:
+                    # Belønning og oprydning
+                    if board:
+                        shop.gold += 5    # eller beregn efter performance
+                        player_xp += 2
+                    # Ryd board og enemy_board, go back to shop
+                    board.clear()
+                    enemy_board.clear()
+                    in_combat = False
         pygame.display.flip()
     pygame.quit()
 
