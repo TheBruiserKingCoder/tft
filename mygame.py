@@ -22,7 +22,7 @@ def hexagon_points(center, radius):
         for angle in range(0, 360, 60)
     ]
 # Active traits counter
-# Count the number of each trait (origin/class) on the board, ignoring duplicate champion names
+# Count the number of each trait (origin/class) on the board, ignoring duplicate champion names.
 def active_traits(board):
     """
     Returns a dict {trait:count} for all champions
