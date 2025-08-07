@@ -1,14 +1,17 @@
 # TFT Pygame – komplet prototype med origin- og class-traits, shop, drag-n-drop, kamp og buffs
 
+
+# Import necessary libraries
 import pygame
 import random
 import math
 
+# Calculate the 6 corner points of a hexagon given a center and radius
 def hexagon_points(center, radius):
     """
     center: (x,y)
-    radius: afstand fra center til hvert hjørne
-    returnerer en liste af 6 (x,y)-tupler
+    radius: distance from center to each corner
+    Returns a list of 6 (x,y) tuples for the hexagon corners
     """
     cx, cy = center
     return [
@@ -18,7 +21,44 @@ def hexagon_points(center, radius):
         )
         for angle in range(0, 360, 60)
     ]
+# Active traits counter
+# Count the number of each trait (origin/class) on the board, ignoring duplicate champion names
+def active_traits(board):
+    """
+    Returns a dict {trait:count} for all champions
+    on your board. Duplicate names only count once.
+    """
+    counts    = {}
+    seen_names = set()
 
+    for champ in board:
+        if champ is None or champ.name in seen_names:
+            continue
+        seen_names.add(champ.name)
+
+        # Use the fields stored on the champion object
+        for trait in (champ.origin, champ.klass):
+            counts[trait] = counts.get(trait, 0) + 1
+
+    return counts
+# --- hex-overlay konstanter ---
+HEX_ALPHA    = 100
+HEX_COLOR_BG = (50,  50,  50,  HEX_ALPHA)
+HEX_COLOR_FG = (180, 180, 180)
+HEX_COLOR_HL = (0,  120, 255, HEX_ALPHA)
+HEX_WIDTH    = 2
+
+# Draw a hexagon overlay at a given position, highlighting if the mouse is close
+def draw_hex_overlay(surface, pos):
+    mx, my = pygame.mouse.get_pos()
+    dist   = math.hypot(mx-pos[0], my-pos[1])
+    bg     = HEX_COLOR_HL if dist <= HEX_RADIUS else HEX_COLOR_BG
+
+    surf = pygame.Surface((HEX_RADIUS*2, HEX_RADIUS*2), pygame.SRCALPHA)
+    pts  = hexagon_points((HEX_RADIUS, HEX_RADIUS), HEX_RADIUS)
+    pygame.draw.polygon(surf, bg,                 pts, 0)
+    pygame.draw.polygon(surf, HEX_COLOR_FG,       pts, HEX_WIDTH)
+    surface.blit(surf, (pos[0]-HEX_RADIUS, pos[1]-HEX_RADIUS))
 
 pygame.init()
 
@@ -34,12 +74,27 @@ BLUE  = (0, 150, 255)
 GREEN = (0, 255, 0)
 RED   = (255, 0, 0)
 
-# --- SLOT POSITIONS ---
-MAX_BOARD_SLOTS = 5
-MAX_BENCH_SLOTS = 9
-BENCH_SLOT_POSITIONS = [(20 + i*60 + i*10, 380) for i in range(MAX_BENCH_SLOTS)]
-BOARD_SLOT_POSITIONS = [(100 + i*120, 450) for i in range(MAX_BOARD_SLOTS)]
+# Max Bench And slot definition
+MAX_BOARD_SLOTS = 5      # antal pladser på selve brættet
+MAX_BENCH_SLOTS = 7      # antal pladser på bænken (eller hvad du ønsker)
 
+# SLOT POSITIONS
+HEX_RADIUS     = 40
+SLOT_SPACING   = HEX_RADIUS*2 + 20    # 80px diameter + 20px mellemrum
+BOARD_START_X  = SCREEN_WIDTH//2 - ((MAX_BOARD_SLOTS*SLOT_SPACING - SLOT_SPACING)//2)
+ENEMY_Y        = 200
+BOARD_Y        = SCREEN_HEIGHT//2     # ca. 350
+BENCH_Y        = SCREEN_HEIGHT - 100  # ca. 600
+
+ENEMY_SLOT_POSITIONS = [
+    (BOARD_START_X + i*SLOT_SPACING, ENEMY_Y) for i in range(MAX_BOARD_SLOTS)
+]
+BOARD_SLOT_POSITIONS = [
+    (BOARD_START_X + i*SLOT_SPACING, BOARD_Y) for i in range(MAX_BOARD_SLOTS)
+]
+BENCH_SLOT_POSITIONS = [
+    (BOARD_START_X + i*SLOT_SPACING, BENCH_Y) for i in range(MAX_BENCH_SLOTS)
+]
 # --- ØKONOMI ---
 XP_PER_BUY = 4
 GOLD_PER_XP = 4
@@ -73,10 +128,12 @@ TRAIT_BUFFS = {
 }
 
 # --- HJÆLPE-FUNKTIONER ---
+# Draw text on the given surface at (x, y)
 def draw_text(surface, text, x, y, size=24, color=BLACK):
     font = pygame.font.SysFont(None, size)
     surface.blit(font.render(text, True, color), (x, y))
 
+# Draw a health bar for a champion
 def draw_health_bar(surface, x, y, current_hp, max_hp, width=40, height=6):
     if max_hp <= 0: return
     hp_ratio = max(0, current_hp / max_hp)
@@ -84,51 +141,67 @@ def draw_health_bar(surface, x, y, current_hp, max_hp, width=40, height=6):
     pygame.draw.rect(surface, GREEN, (x, y, int(width * hp_ratio), height))
 
 # --- CHAMPION-KLASSE ---
+
+# Champion class represents a unit on the board or bench
 class Champion:
     def __init__(self, name, cost, hp, dmg, origin, klass, star=1):
+        # Basic info
         self.name, self.cost = name, cost
         self.base_hp, self.base_dmg = hp, dmg
         self.origin, self.klass = origin, klass
         self.star = star
+        # Calculate stats based on star level
         self.max_hp = self.base_hp * (self.star * 0.75)
         self.current_hp = self.max_hp
         self.damage = self.base_dmg * self.star
+        # Position on screen
         self.x = self.y = 0
         # Stats for buffs
         self.armor = 0; self.mr = 0; self.shield = 0
         self.lifesteal = 0; self.dodge = 0; self.mana = 0
 
     def apply_traits(self, trait_counts):
-        # Origin buffs
+        # Apply origin trait buffs if active
         if trait_counts.get(self.origin, 0) > 0:
             tb = TRAIT_BUFFS.get(self.origin, {})
             for bp in tb.get("bps", []):
                 if trait_counts[self.origin] >= bp:
-                    for k, v in tb["effects"][bp].items(): setattr(self, k, getattr(self, k, 0) + v)
-        # Class buffs
+                    for k, v in tb["effects"][bp].items():
+                        setattr(self, k, getattr(self, k, 0) + v)
+        # Apply class trait buffs (Mystic is special case)
         class_key = self.klass if self.klass != "Mystic" else "MysticClass"
         if trait_counts.get(self.klass, 0) > 0 or (self.klass == "Mystic" and trait_counts.get(self.klass, 0) > 0):
             tb = TRAIT_BUFFS.get(class_key, {})
             for bp in tb.get("bps", []):
                 if trait_counts.get(self.klass, 0) >= bp:
-                    for k, v in tb["effects"][bp].items(): setattr(self, k, getattr(self, k, 0) + v)
+                    for k, v in tb["effects"][bp].items():
+                        setattr(self, k, getattr(self, k, 0) + v)
 
     def attack(self, target):
-        # Dodge
+        # Attempt to attack another champion
+        # Check for dodge chance
         if random.random() < target.dodge:
             print(f"{target.name} dodger angrebet!")
             return
+        # Calculate damage (with possible multiplier)
         dmg = self.damage * getattr(self, "dmg_mul", 1)
+        # Calculate healing from lifesteal
         heal = dmg * self.lifesteal
         self.current_hp = min(self.max_hp, self.current_hp + heal)
-        # Shield absorption
+        # Shield absorption logic
         if target.shield > 0:
-            if target.shield >= dmg: target.shield -= dmg; dmg = 0
-            else: dmg -= target.shield; target.shield = 0
+            if target.shield >= dmg:
+                target.shield -= dmg
+                dmg = 0
+            else:
+                dmg -= target.shield
+                target.shield = 0
+        # Apply damage to target
         target.current_hp = max(0, target.current_hp - dmg)
         print(f"{self.name} slår {target.name}: {dmg} dmg, heal {heal}")
 
     def draw(self, surface):
+        # Draw the champion as a rectangle, with name, star, and health bar
         pygame.draw.rect(surface, BLUE, (self.x, self.y, 40, 40))
         draw_text(surface, f"{self.name}({self.star}★)", self.x, self.y-15, size=18)
         draw_health_bar(surface, self.x, self.y-8, self.current_hp, self.max_hp)
@@ -165,18 +238,35 @@ ALL_CHAMPIONS = [
 ]
 
 # --- SHOP ---
+# Shop class handles champion shop logic
 class Shop:
-    def __init__(self, gold): self.gold, self.reroll_cost, self.shop_slots = gold,2,5; self.choices=[]
+    def __init__(self, gold):
+        self.gold = gold
+        self.reroll_cost = 2
+        self.shop_slots = 5
+        self.choices = []
+
+    # Reroll the shop to get new random champions based on player level
     def reroll(self, level):
-        if self.gold < self.reroll_cost: return
+        if self.gold < self.reroll_cost:
+            return
         self.gold -= self.reroll_cost
+        # Cap determines max cost of champions available at this level
         cap = 1 if level<=1 else 2 if level<=3 else 3 if level<=5 else 4 if level<=7 else 5
         allowed = [c for c in ALL_CHAMPIONS if c[1]<=cap]
         self.choices = random.choices(allowed, k=self.shop_slots)
-    def can_buy(self, champ): return self.gold>=champ[1]
+
+    # Check if you can afford a champion
+    def can_buy(self, champ):
+        return self.gold>=champ[1]
+
+    # Buy a champion and add to bench if possible
     def buy(self, champ, bench):
-        if len(bench)>=MAX_BENCH_SLOTS or not self.can_buy(champ): return False
-        self.gold -= champ[1]; bench.append(Champion(*champ)); return True
+        if len(bench)>=MAX_BENCH_SLOTS or not self.can_buy(champ):
+            return False
+        self.gold -= champ[1]
+        bench.append(Champion(*champ))
+        return True
 
 # --- MAIN LOOP ---
 def main():
@@ -235,61 +325,48 @@ def main():
             for t in (c.origin,c.klass): trait_counts[t]=trait_counts.get(t,0)+1
         for c in bench+board: c.apply_traits(trait_counts)
         screen.fill(WHITE)
-        draw_text(screen,f"Guld:{shop.gold}",20,20)
-        draw_text(screen,f"Lvl:{player_level}",20,50)
-        draw_text(screen,f"XP:{player_xp}/{xp_to_next_level(player_level)}",20,80)
-        # --- Tegn hex-guides for bench og board før sprites ---
-        HEX_RADIUS = 40
-        HEX_COLOR  = (180,180,180)   # en lys grå
-        HEX_WIDTH  = 2              # tykkelsen på linjen
 
-        # Bench-hexes
-        for pos in BENCH_SLOT_POSITIONS:
-            pts = hexagon_points(pos, HEX_RADIUS)
-            pygame.draw.polygon(screen, HEX_COLOR, pts, HEX_WIDTH)
+        # 1) Draw top‐bar: gold, level, XP
+        draw_text(screen, f"Guld: {shop.gold}", 20, 20)
+        draw_text(screen, f"Lvl: {player_level}", 20, 50)
+        draw_text(screen, f"XP: {player_xp}/{xp_to_next_level(player_level)}", 20, 80)
 
-        # Board-hexes
-        for pos in BOARD_SLOT_POSITIONS:
-            pts = hexagon_points(pos, HEX_RADIUS)
-            pygame.draw.polygon(screen, HEX_COLOR, pts, HEX_WIDTH)
-        for i,ch in enumerate(shop.choices): x=200+i*140; draw_text(screen,f"{i+1}){ch[0]}({ch[1]}g)" if ch else f"{i+1})(tom)",x,50)
-        draw_text(screen,"Bench:",20,340); [ (setattr(ch,"x",BENCH_SLOT_POSITIONS[i][0]), setattr(ch,"y",BENCH_SLOT_POSITIONS[i][1]), ch.draw(screen)) for i,ch in enumerate(bench) ]
-        draw_text(screen,"Board:",20,420); [ (setattr(ch,"x",BOARD_SLOT_POSITIONS[i][0]), setattr(ch,"y",BOARD_SLOT_POSITIONS[i][1]), ch.draw(screen)) for i,ch in enumerate(board) ]
-        # Tegn fjende‐holdet (kun i combat)
-        if in_combat:
-            for ch in enemy_board:
-                ch.draw(screen)
+        # 2) Draw shop choices (so you know what to buy)
+        for i, tpl in enumerate(shop.choices):
+            x = 200 + i*140
+            if tpl:
+                name, cost = tpl[0], tpl[1]
+                draw_text(screen, f"{i+1}) {name} ({cost}g)", x, 20)
+            else:
+                draw_text(screen, f"{i+1}) (tom)", x, 20)
 
-        ticks+=1
-        #if ticks>=FPS and len(board)>=2: a,b=board[0],board[1]; a.attack(b); b.attack(a) if b.current_hp>0 else None; ticks=0
-        if in_combat:
-            ticks += 1
-            if ticks >= FPS:
-                # Hver runde: alle på board angriber random modstander på enemy_board og omvendt
-                for a in list(board):
-                    if enemy_board:
-                        b = random.choice(enemy_board)
-                        a.attack(b)
-                        if b.current_hp <= 0:
-                            enemy_board.remove(b)
-                for b in list(enemy_board):
-                    if board:
-                        a = random.choice(board)
-                        b.attack(a)
-                        if a.current_hp <= 0:
-                            board.remove(a)
-                ticks = 0
+        # 3) Hex‐overlay under everything, so you see your drop‐zones
+        mx, my = pygame.mouse.get_pos()
+        for pos in ENEMY_SLOT_POSITIONS + BOARD_SLOT_POSITIONS + BENCH_SLOT_POSITIONS:
+            dist = math.hypot(mx - pos[0], my - pos[1])
+            bg   = HEX_COLOR_HL if dist <= HEX_RADIUS else HEX_COLOR_BG
 
-                # Tjek om kampen er slut
-                if not board or not enemy_board:
-                    # Belønning og oprydning
-                    if board:
-                        shop.gold += 5    # eller beregn efter performance
-                        player_xp += 2
-                    # Ryd board og enemy_board, go back to shop
-                    board.clear()
-                    enemy_board.clear()
-                    in_combat = False
+            surf = pygame.Surface((HEX_RADIUS*2, HEX_RADIUS*2), pygame.SRCALPHA)
+            pts  = hexagon_points((HEX_RADIUS, HEX_RADIUS), HEX_RADIUS)
+            pygame.draw.polygon(surf, bg,            pts, 0)
+            pygame.draw.polygon(surf, HEX_COLOR_FG,  pts, HEX_WIDTH)
+            screen.blit(surf, (pos[0]-HEX_RADIUS, pos[1]-HEX_RADIUS))
+
+        # 4) Draw enemy row (only in combat)
+        for i, ch in enumerate(enemy_board):
+            ch.x, ch.y = ENEMY_SLOT_POSITIONS[i]
+            ch.draw(screen)
+
+        # 5) Draw your board
+        for i, ch in enumerate(board):
+            ch.x, ch.y = BOARD_SLOT_POSITIONS[i]
+            ch.draw(screen)
+
+        # 6) Draw your bench
+        for i, ch in enumerate(bench):
+            ch.x, ch.y = BENCH_SLOT_POSITIONS[i]
+            ch.draw(screen)
+
         pygame.display.flip()
     pygame.quit()
 
