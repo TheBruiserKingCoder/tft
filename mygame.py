@@ -213,7 +213,7 @@ ALL_CHAMPIONS = [
     ("Vex",1,125,28,"Undead","Enchanter"),("Olaf",1,135,32,"Freljord","Brawler"),
     ("Senna",1,100,45,"Shadow Isles","Sharpshooter"),("Maokai",1,150,20,"Freljord","Brawler"),
     ("Pyke",1,115,38,"Bilgewater","Assassin"),("Malzahar",1,105,42,"Void","Invoker"),
-    ("Sett (baby)",1,145,22,"Ionia","Brawler"),("Neeko",1,128,30,"Ionia","Mystic"),
+    ("Sett",1,145,22,"Ionia","Brawler"),("Neeko",1,128,30,"Ionia","Mystic"),
     ("Lux",2,250,60,"Demacia","Invoker"),("Illaoi",2,270,55,"Bilgewater","Colossus"),
     ("Twitch",2,240,65,"Ionia","Assassin"),("Rakan",2,260,58,"Ionia","Warden"),
     ("Diana",2,230,70,"Targon","Assassin"),("Kalista",2,220,75,"Shadow Isles","Sharpshooter"),
@@ -289,8 +289,13 @@ def main():
                 elif e.key==pygame.K_e and shop.gold>=GOLD_PER_XP:
                     shop.gold-=GOLD_PER_XP; player_xp+=XP_PER_BUY
                     if player_xp>=xp_to_next_level(player_level): player_xp-=xp_to_next_level(player_level); player_level+=1
-                elif e.key in [pygame.K_1,pygame.K_2,pygame.K_3,pygame.K_4,pygame.K_5]:
-                    idx=e.key-pygame.K_1
+                elif e.key in [pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4, pygame.K_5,
+                pygame.K_KP1, pygame.K_KP2, pygame.K_KP3, pygame.K_KP4, pygame.K_KP5]:
+                    key_to_idx = {
+                        pygame.K_1:0, pygame.K_2:1, pygame.K_3:2, pygame.K_4:3, pygame.K_5:4,
+                        pygame.K_KP1:0, pygame.K_KP2:1, pygame.K_KP3:2, pygame.K_KP4:3, pygame.K_KP5:4,
+                    }
+                    idx = key_to_idx.get(e.key)
                     if idx<len(shop.choices) and shop.choices[idx]:
                         if shop.buy(shop.choices[idx],bench): shop.choices[idx]=None
                 elif e.key == pygame.K_b and not in_combat:
